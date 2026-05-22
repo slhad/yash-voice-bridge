@@ -79,15 +79,65 @@ function tokenizeText(text: string): Set<string> {
   );
 }
 
-function scoreAction(action: ActionDefinition, transcriptTokens: Set<string>): number {
-  const idTokens = action.id.split(".");
-  const candidateText = [
-    ...idTokens,
-    action.title,
-    ...(action.examples ?? []).map((e) => e.description ?? ""),
-  ].join(" ");
+function tokenizeSequence(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
 
-  const candidateTokens = tokenizeText(candidateText);
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildActionCommandPhrases(action: ActionDefinition): string[] {
+  const idTokens = action.id
+    .split(".")
+    .flatMap((part) => tokenizeSequence(part))
+    .filter(Boolean);
+  const titleTokens = tokenizeSequence(action.title).filter((token) => !STOP_WORDS.has(token));
+  const basePhrases = [
+    idTokens,
+    [...idTokens].reverse(),
+    titleTokens,
+  ]
+    .filter((tokens) => tokens.length >= 2)
+    .map((tokens) => tokens.join(" "));
+
+  const phrases = new Set<string>();
+  for (const phrase of basePhrases) {
+    phrases.add(phrase);
+    const parts = phrase.split(" ");
+    const last = parts.at(-1);
+    if (last && !last.endsWith("s")) {
+      phrases.add(`${parts.slice(0, -1).join(" ")} ${last}s`.trim());
+    }
+  }
+
+  return [...phrases].filter(Boolean).sort((a, b) => b.length - a.length);
+}
+
+function buildActionMatchText(action: ActionDefinition): string {
+  return [action.id.replace(".", " "), action.title].join(" ");
+}
+
+function stripMatchedCommandText(transcript: string, action: ActionDefinition): string {
+  let remaining = transcript;
+
+  for (const phrase of buildActionCommandPhrases(action)) {
+    const regex = new RegExp(`(^|.*?\\b)${escapeRegex(phrase).replace(/ /g, "\\W+")}(?=\\b|$)`, "iu");
+    const match = regex.exec(remaining);
+    if (!match || match.index !== 0) continue;
+    remaining = remaining.slice(match[0].length);
+    break;
+  }
+
+  return remaining.replace(/^[\s"'`.,:;!?()\-]+/u, "").trim();
+}
+
+function scoreAction(action: ActionDefinition, transcriptTokens: Set<string>): number {
+  const candidateTokens = tokenizeWithoutStopWords(buildActionMatchText(action));
   let score = 0;
 
   for (const token of transcriptTokens) {
@@ -128,15 +178,18 @@ function countMatchedTokens(candidateTokens: Set<string>, transcriptTokens: Set<
 
 function hasExactPhraseMatch(transcript: string, action: ActionDefinition): boolean {
   const normalizedTranscript = normalizeText(transcript);
-  const phrases = [
-    action.title,
-    action.id.replace(".", " "),
-    ...(action.examples ?? []).map((example) => example.description ?? ""),
-  ]
+  const phrases = [action.title, action.id.replace(".", " ")]
     .map(normalizeText)
     .filter(Boolean);
 
   return phrases.some((phrase) => normalizedTranscript.includes(phrase));
+}
+
+function hasCommandPhraseMatch(transcript: string, action: ActionDefinition): boolean {
+  const normalizedTranscript = normalizeText(transcript);
+  return buildActionCommandPhrases(action)
+    .map(normalizeText)
+    .some((phrase) => normalizedTranscript.includes(phrase));
 }
 
 type RankedCandidate = {
@@ -145,13 +198,14 @@ type RankedCandidate = {
   score: number;
   matchedTokenCount: number;
   enumMatchCount: number;
+  commandPhraseMatch: boolean;
   exactPhraseMatch: boolean;
 };
 
 function extractArgs(transcript: string, action: ActionDefinition): Record<string, unknown> {
   const tokens = tokenizeText(transcript);
   const args: Record<string, unknown> = {};
-  let remaining = transcript.trim();
+  let remaining = stripMatchedCommandText(transcript, action);
 
   for (const [key, schema] of Object.entries(action.args)) {
     if (schema.type !== "enum" || !schema.values) continue;
@@ -174,6 +228,59 @@ function extractArgs(transcript: string, action: ActionDefinition): Record<strin
   }
 
   return args;
+}
+
+export const __testing = {
+  buildActionMatchText,
+  buildActionCommandPhrases,
+  extractArgs,
+  hasCommandPhraseMatch,
+  hasExactPhraseMatch,
+  stripMatchedCommandText,
+};
+
+function rankCandidates(transcript: string, actions: ActionDefinition[]): RankedCandidate[] {
+  const transcriptTokens = tokenizeWithoutStopWords(transcript);
+  const transcriptMeaningfulTokens = tokenizeWithoutStopWords(transcript);
+
+  return actions
+    .map((action): RankedCandidate => {
+      const args = extractArgs(transcript, action);
+      const candidateTokens = tokenizeWithoutStopWords(buildActionMatchText(action));
+      const commandPhraseMatch = hasCommandPhraseMatch(transcript, action);
+
+      return {
+        action,
+        args,
+        score: scoreAction(action, transcriptTokens),
+        matchedTokenCount: countMatchedTokens(candidateTokens, transcriptMeaningfulTokens),
+        enumMatchCount: countEnumMatches(args, action.args),
+        commandPhraseMatch,
+        exactPhraseMatch: hasExactPhraseMatch(transcript, action),
+      };
+    })
+    .filter(
+      ({ score, matchedTokenCount, commandPhraseMatch, exactPhraseMatch }) =>
+        score >= MIN_SCORE && (commandPhraseMatch || exactPhraseMatch || matchedTokenCount >= 2),
+    )
+    .sort((a, b) => {
+      if (b.commandPhraseMatch !== a.commandPhraseMatch) {
+        return Number(b.commandPhraseMatch) - Number(a.commandPhraseMatch);
+      }
+      if (b.enumMatchCount !== a.enumMatchCount) return b.enumMatchCount - a.enumMatchCount;
+      if (b.exactPhraseMatch !== a.exactPhraseMatch) return Number(b.exactPhraseMatch) - Number(a.exactPhraseMatch);
+      if (b.matchedTokenCount !== a.matchedTokenCount) return b.matchedTokenCount - a.matchedTokenCount;
+      return b.score - a.score;
+    });
+}
+
+function mapTranscriptToAction(transcript: string, actions: ActionDefinition[]): MappedAction {
+  const scored = rankCandidates(transcript, actions);
+  if (scored.length === 0) return { matched: false };
+
+  const best = scored[0];
+  if (!validateArgs(best.args, best.action.args)) return { matched: false };
+  return { matched: true, action: best.action.id, args: best.args };
 }
 
 function validateArgs(args: Record<string, unknown>, schema: Record<string, ArgSchema>): boolean {
@@ -233,44 +340,7 @@ export async function createActionMapper(config: ActionMapperConfig): Promise<Ac
 
   function map(transcript: string): Promise<MappedAction> {
     if (inactive || actions.length === 0) return Promise.resolve({ matched: false });
-
-    const transcriptTokens = tokenizeText(transcript);
-    const transcriptMeaningfulTokens = tokenizeWithoutStopWords(transcript);
-    const scored = actions
-      .map((action): RankedCandidate => {
-        const args = extractArgs(transcript, action);
-        const candidateText = [
-          action.id.replace(".", " "),
-          action.title,
-          action.description,
-          ...(action.examples ?? []).map((example) => example.description ?? ""),
-        ].join(" ");
-        const candidateTokens = tokenizeWithoutStopWords(candidateText);
-
-        return {
-          action,
-          args,
-          score: scoreAction(action, transcriptTokens),
-          matchedTokenCount: countMatchedTokens(candidateTokens, transcriptMeaningfulTokens),
-          enumMatchCount: countEnumMatches(args, action.args),
-          exactPhraseMatch: hasExactPhraseMatch(transcript, action),
-        };
-      })
-      .filter(({ score }) => score >= MIN_SCORE)
-      .sort((a, b) => {
-        if (b.enumMatchCount !== a.enumMatchCount) return b.enumMatchCount - a.enumMatchCount;
-        if (b.exactPhraseMatch !== a.exactPhraseMatch) return Number(b.exactPhraseMatch) - Number(a.exactPhraseMatch);
-        if (b.matchedTokenCount !== a.matchedTokenCount) return b.matchedTokenCount - a.matchedTokenCount;
-        return b.score - a.score;
-      });
-
-    if (scored.length === 0) return Promise.resolve({ matched: false });
-
-    const best = scored[0];
-
-    if (!validateArgs(best.args, best.action.args)) return Promise.resolve({ matched: false });
-
-    return Promise.resolve({ matched: true, action: best.action.id, args: best.args });
+    return Promise.resolve(mapTranscriptToAction(transcript, actions));
   }
 
   function close(): void {
