@@ -2,7 +2,7 @@ node_modules/
 .DS_Store
 
 tmp/*
-!tmp/ONGOING.md
+!tmp/.gitkeep
 
 coverage/
 dist/
