@@ -3,7 +3,6 @@ node_modules/
 
 tmp/*
 !tmp/ONGOING.md
-!tmp/.gitkeep
 
 coverage/
 dist/
