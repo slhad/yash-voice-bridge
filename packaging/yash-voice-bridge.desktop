@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=YASH Voice Bridge
+Comment=Voice transcription sidecar for YASH
+Exec=yash-voice-bridge
+Icon=yash-voice-bridge
+Type=Application
+Categories=Utility;
+Terminal=true

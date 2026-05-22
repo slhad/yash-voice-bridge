@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.slhad.yash-voice-bridge</id>
+  <name>YASH Voice Bridge</name>
+  <summary>Terminal-based voice transcription sidecar for YASH</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.slhad">
+    <name>slhad</name>
+  </developer>
+  <description>
+    <p>
+      YASH Voice Bridge is a terminal-first Linux voice transcription sidecar for YASH.
+      It captures live Pulse audio or replayed recordings, transcribes them locally with Whisper,
+      and emits raw transcript lines for validation and future YASH IPC integration.
+    </p>
+    <p>
+      The application is intended to run in a terminal and does not provide a graphical interface.
+      Packaged desktop metadata exists to improve AppImage integration for end users.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.slhad.yash-voice-bridge.desktop</launchable>
+  <url type="homepage">https://github.com/slhad</url>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <provides>
+    <binary>yash-voice-bridge</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-05-22"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
