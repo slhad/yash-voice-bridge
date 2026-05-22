@@ -38,6 +38,36 @@ export interface ActionMapper {
 }
 
 const MIN_SCORE = 2;
+const STOP_WORDS = new Set([
+  "a",
+  "all",
+  "an",
+  "at",
+  "do",
+  "for",
+  "from",
+  "i",
+  "in",
+  "it",
+  "let",
+  "let's",
+  "me",
+  "my",
+  "of",
+  "on",
+  "one",
+  "or",
+  "past",
+  "please",
+  "recent",
+  "retrieve",
+  "s",
+  "send",
+  "stream",
+  "talk",
+  "the",
+  "to",
+]);
 
 function tokenizeText(text: string): Set<string> {
   return new Set(
@@ -67,6 +97,56 @@ function scoreAction(action: ActionDefinition, transcriptTokens: Set<string>): n
   if (action.voiceHint) score *= 2;
   return score;
 }
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeWithoutStopWords(text: string): Set<string> {
+  return new Set([...tokenizeText(text)].filter((token) => !STOP_WORDS.has(token)));
+}
+
+function countEnumMatches(args: Record<string, unknown>, schema: Record<string, ArgSchema>): number {
+  let count = 0;
+  for (const [key, argSchema] of Object.entries(schema)) {
+    if (argSchema.type === "enum" && args[key] !== undefined) count += 1;
+  }
+  return count;
+}
+
+function countMatchedTokens(candidateTokens: Set<string>, transcriptTokens: Set<string>): number {
+  let count = 0;
+  for (const token of transcriptTokens) {
+    if (candidateTokens.has(token)) count += 1;
+  }
+  return count;
+}
+
+function hasExactPhraseMatch(transcript: string, action: ActionDefinition): boolean {
+  const normalizedTranscript = normalizeText(transcript);
+  const phrases = [
+    action.title,
+    action.id.replace(".", " "),
+    ...(action.examples ?? []).map((example) => example.description ?? ""),
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return phrases.some((phrase) => normalizedTranscript.includes(phrase));
+}
+
+type RankedCandidate = {
+  action: ActionDefinition;
+  args: Record<string, unknown>;
+  score: number;
+  matchedTokenCount: number;
+  enumMatchCount: number;
+  exactPhraseMatch: boolean;
+};
 
 function extractArgs(transcript: string, action: ActionDefinition): Record<string, unknown> {
   const tokens = tokenizeText(transcript);
@@ -155,19 +235,42 @@ export async function createActionMapper(config: ActionMapperConfig): Promise<Ac
     if (inactive || actions.length === 0) return Promise.resolve({ matched: false });
 
     const transcriptTokens = tokenizeText(transcript);
+    const transcriptMeaningfulTokens = tokenizeWithoutStopWords(transcript);
     const scored = actions
-      .map((action) => ({ action, score: scoreAction(action, transcriptTokens) }))
+      .map((action): RankedCandidate => {
+        const args = extractArgs(transcript, action);
+        const candidateText = [
+          action.id.replace(".", " "),
+          action.title,
+          action.description,
+          ...(action.examples ?? []).map((example) => example.description ?? ""),
+        ].join(" ");
+        const candidateTokens = tokenizeWithoutStopWords(candidateText);
+
+        return {
+          action,
+          args,
+          score: scoreAction(action, transcriptTokens),
+          matchedTokenCount: countMatchedTokens(candidateTokens, transcriptMeaningfulTokens),
+          enumMatchCount: countEnumMatches(args, action.args),
+          exactPhraseMatch: hasExactPhraseMatch(transcript, action),
+        };
+      })
       .filter(({ score }) => score >= MIN_SCORE)
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => {
+        if (b.enumMatchCount !== a.enumMatchCount) return b.enumMatchCount - a.enumMatchCount;
+        if (b.exactPhraseMatch !== a.exactPhraseMatch) return Number(b.exactPhraseMatch) - Number(a.exactPhraseMatch);
+        if (b.matchedTokenCount !== a.matchedTokenCount) return b.matchedTokenCount - a.matchedTokenCount;
+        return b.score - a.score;
+      });
 
     if (scored.length === 0) return Promise.resolve({ matched: false });
 
-    const best = scored[0].action;
-    const args = extractArgs(transcript, best);
+    const best = scored[0];
 
-    if (!validateArgs(args, best.args)) return Promise.resolve({ matched: false });
+    if (!validateArgs(best.args, best.action.args)) return Promise.resolve({ matched: false });
 
-    return Promise.resolve({ matched: true, action: best.id, args });
+    return Promise.resolve({ matched: true, action: best.action.id, args: best.args });
   }
 
   function close(): void {

@@ -202,5 +202,5 @@ The IPC client layer is now implemented. Current capabilities:
 
 - `--yash-ipc` forwards each transcript line to YASH over `~/.yash/yash.sock`
 - `--wake-phrase <phrase>` gates forwarding to lines starting with the phrase (stripped before forwarding by default)
-- `--yash-actions` enables local action mapping against YASH's `list_actions` output, preferring IPC-safe actions with useful token/title/example matches and falling back to raw `command` on no match
+- `--yash-actions` enables local action mapping against YASH's `list_actions` output, preferring IPC-safe actions with useful token/title/example matches and dropping unmatched transcripts instead of forwarding raw `command`
 - All IPC errors are non-fatal: YASH not running logs a warning and the transcription loop continues

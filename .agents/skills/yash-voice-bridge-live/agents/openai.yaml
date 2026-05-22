@@ -1,0 +1,7 @@
+interface:
+  display_name: "YASH Voice Bridge Live"
+  short_description: "Shared tmux workflow for live voice bridge tests"
+  default_prompt: "Use $yash-voice-bridge-live to run and watch the shared yash-voice-bridge tmux session."
+
+policy:
+  allow_implicit_invocation: true

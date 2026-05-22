@@ -46,3 +46,16 @@ Before claiming the raw pipeline works:
 - confirm WAV chunks are created under `[tmp]`
 - confirm completed chunks are passed to `whisper-cli`
 - confirm recognized text prints to the terminal when the mic picks up speech
+
+## Pull Requests
+
+Before opening a PR, complete the relevant checks and mark non-applicable items as `N/A — reason` rather than leaving them unchecked.
+
+1. Run targeted tests if this change adds or changes automated coverage.
+2. Run `bun run typecheck` and ensure it passes.
+3. Verify the live bridge behavior in tmux when changing capture, transcription, or IPC behavior.
+4. Generate a VHS demo for meaningful TUI/live voice-flow changes and link it in the PR Demo section when available.
+5. Update `SPECS.md` for changed commands, flags, or behavior, and update `README.md` when setup or operator workflow changed.
+6. Use `.github/PULL_REQUEST_TEMPLATE.md` for the PR body.
+
+For this repo, keep demo artifacts under `[tmp]` locally and upload/share them externally for PRs rather than committing binaries.
