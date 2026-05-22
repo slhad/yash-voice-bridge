@@ -28,7 +28,7 @@ Implemented:
 - dedicated app config dir for defaults and packaging-safe runtime behavior
 - AppImage packaging workflow and local AppImage build script
 - wake-phrase filter: only forward transcripts to YASH IPC when they begin with the configured phrase
-- local action mapping: score transcripts against YASH's structured action registry and invoke `invoke_action` when matched, falling back to raw command forwarding
+- local action mapping: score transcripts against YASH's structured action registry and invoke `invoke_action` when matched, dropping unmatched transcripts in action-mapper mode
 
 Validated:
 
@@ -158,7 +158,7 @@ Map transcripts to structured YASH actions using the local YASH action registry 
 bun run raw --yash-ipc --wake-phrase "hey yash" --yash-actions
 ```
 
-The mapper fetches YASH actions with `list_actions`, keeps IPC-safe actions, scores transcripts against action titles/examples/ids, and prefers actions with `voiceHint: true`. Unmatched transcripts fall back to raw `command` forwarding.
+The mapper fetches YASH actions with `list_actions`, keeps IPC-safe actions, scores transcripts against action titles/examples/ids, and prefers actions with `voiceHint: true`. In `--yash-actions` mode, unmatched transcripts are dropped instead of being forwarded as raw `command` IPC.
 
 Socket path defaults to `~/.yash/yash.sock`. Override with `--yash-socket <path>` or set `yashSocket` in `~/.config/yash-voice-bridge/config.json`.
 

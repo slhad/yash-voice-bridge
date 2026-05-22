@@ -8,7 +8,7 @@ import {
   loadOrInitAppConfig,
   resolveModelsDirFromConfig,
 } from "./appConfig";
-import { resolveYashSocketPath, sendIpcRequest, sendVoiceTranscript } from "./ipc";
+import { resolveYashSocketPath, sendIpcRequest } from "./ipc";
 import { type ActionMapper, createActionMapper } from "./actionMapper";
 
 type Mode = "raw";
@@ -153,7 +153,7 @@ Wake-word filter options:
   --no-wake-phrase-strip     Keep the wake phrase in the forwarded text (default: strip it).
 
 Action mapping options:
-  --yash-actions             Map transcripts to structured YASH actions via keyword matching (requires --yash-ipc).
+  --yash-actions             Map transcripts to structured YASH actions only; unmatched transcripts are dropped (requires --yash-ipc).
 
 Help:
   --help, -h                 Show this help message.
@@ -448,6 +448,10 @@ async function emitTranscript(
         if (mapper) {
           const mapped = await mapper.map(forwardText);
           if (mapped.matched) {
+            console.log(
+              `[actions] matched transcript=${JSON.stringify(forwardText)} action=${mapped.action} args=${JSON.stringify(mapped.args)}`,
+            );
+            console.log(`[ipc] sending invoke_action action=${mapped.action}`);
             const res = await sendIpcRequest(config.yashSocket, {
               type: "invoke_action",
               action: mapped.action,
@@ -455,14 +459,34 @@ async function emitTranscript(
             });
             if (!res.ok) {
               console.error(`[ipc] YASH rejected action ${mapped.action}: ${res.error.message}`);
+            } else {
+              const outputCount = Array.isArray(res.result.output) ? res.result.output.length : 0;
+              const dataKeys = res.result.data ? Object.keys(res.result.data) : [];
+              console.log(
+                `[ipc] action result action=${mapped.action} outputLines=${outputCount} dataKeys=${dataKeys.join(",") || "-"}`,
+              );
             }
             dispatched = true;
           }
         }
         if (!dispatched) {
-          const res = await sendVoiceTranscript(config.yashSocket, forwardText);
-          if (!res.ok) {
-            console.error(`[ipc] YASH rejected command: ${res.error.message}`);
+          if (mapper) {
+            console.log(`[actions] no match transcript=${JSON.stringify(forwardText)} dropped=true`);
+          } else {
+            console.log(`[ipc] sending command text=${JSON.stringify(forwardText)}`);
+            const res = await sendIpcRequest(config.yashSocket, {
+              type: "command",
+              command: forwardText,
+            });
+            if (!res.ok) {
+              console.error(`[ipc] YASH rejected command: ${res.error.message}`);
+            } else {
+              const outputCount = Array.isArray(res.result.output) ? res.result.output.length : 0;
+              const dataKeys = res.result.data ? Object.keys(res.result.data) : [];
+              console.log(
+                `[ipc] command result outputLines=${outputCount} dataKeys=${dataKeys.join(",") || "-"}`,
+              );
+            }
           }
         }
       } catch (err) {
