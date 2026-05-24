@@ -27,6 +27,28 @@ const markerCreateAction = {
   ],
 };
 
+const obsShutdownInitiateAction = {
+  id: "obs.shutdown.initiate",
+  title: "Initiate OBS shutdown countdown",
+  description: "Switches to an ending OBS scene, posts countdown messages to chat at a set interval, then stops the OBS stream.",
+  domain: "obs",
+  ipcEnabled: true,
+  readOnly: false,
+  safety: "safe" as const,
+  voiceHint: true,
+  args: {
+    delay: { type: "number" as const, required: false, min: 10, max: 3600 },
+    scene: { type: "string" as const, required: false, maxLength: 200 },
+    message: { type: "string" as const, required: false, maxLength: 500 },
+    source: { type: "string" as const, required: false, maxLength: 200 },
+    sourceText: { type: "string" as const, required: false, maxLength: 200 },
+  },
+  examples: [
+    { args: {}, description: "Start countdown with config defaults" },
+    { args: { delay: 60 }, description: "Shutdown in 60 seconds" },
+  ],
+};
+
 describe("actionMapper string args", () => {
   test("strips command phrase before free text", () => {
     expect(__testing.extractArgs("create marker Coucou, c'est moi.", markerCreateAction)).toEqual({
@@ -43,6 +65,10 @@ describe("actionMapper string args", () => {
 
   test("leaves empty text when only the command phrase was spoken", () => {
     expect(__testing.extractArgs("Euh... le create markers.", markerCreateAction)).toEqual({});
+  });
+
+  test("does not infer a generic string arg for multi-string actions", () => {
+    expect(__testing.extractArgs("initiate obs shutdown countdown", obsShutdownInitiateAction)).toEqual({});
   });
 
   test("recognizes embedded english command phrase", () => {

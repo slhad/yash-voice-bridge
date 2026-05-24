@@ -206,6 +206,9 @@ function extractArgs(transcript: string, action: ActionDefinition): Record<strin
   const tokens = tokenizeText(transcript);
   const args: Record<string, unknown> = {};
   let remaining = stripMatchedCommandText(transcript, action);
+  const stringArgKeys = Object.entries(action.args)
+    .filter(([, schema]) => schema.type === "string")
+    .map(([key]) => key);
 
   for (const [key, schema] of Object.entries(action.args)) {
     if (schema.type !== "enum" || !schema.values) continue;
@@ -218,10 +221,10 @@ function extractArgs(transcript: string, action: ActionDefinition): Record<strin
     }
   }
 
-  for (const [key, schema] of Object.entries(action.args)) {
-    if (schema.type !== "string" || key in args) continue;
+  if (stringArgKeys.length === 1) {
+    const [key] = stringArgKeys;
     const text = remaining.replace(/\s+/g, " ").trim();
-    if (text) {
+    if (text && !(key in args)) {
       args[key] = text;
       remaining = "";
     }
